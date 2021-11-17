@@ -1,0 +1,16 @@
+%% Generator hourly average light input from daily total irradiation
+% Gaussian bell function 
+
+%-------------------------------------------------------------------------
+% 16-06-2021 Author Gabriel Capson-Tojo; gabriel.capson.tojo@usc.es 
+%-------------------------------------------------------------------------
+
+function f=max_I_calc(a,b,c,hour_dis_day,data)
+
+I = a.*exp(-((hour_dis_day-b).^2)./(2.*c.^2));
+
+Area_calc = trapz(hour_dis_day,I);
+
+f=(Area_calc-data);
+
+end
