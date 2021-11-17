@@ -1,0 +1,85 @@
+%% Generator hourly average light input from daily total irradiation (BOM data)
+
+%-------------------------------------------------------------------------
+% 16-06-2021 Author Gabriel Capson-Tojo; gabriel.capson.tojo@usc.es 
+%-------------------------------------------------------------------------
+
+clear; clc;
+
+%% Data needed:
+data_raw = csvread('daily_average_solar_exposure_data.csv'); % Entry in MJ/m2
+data = data_raw./3600.*10^6; % Wh/m2 (1Wh=3.6E3J);
+% Solar times (in hours from midnight; pm format)
+sunrise_time = 5.5;
+sunset_time = 18.5;
+% Month (counting from january) 
+month = 2;
+% Choose hemisphere
+%hemisphere = "north";
+hemisphere = "south";
+
+%% Calculations
+% Daily hour distribution from zenith (starting from sunrise); assumes that
+% sunrise and sunset are the last hours when light is available
+zenith = round((sunrise_time+sunset_time)/2);
+morning = (zeros(1,round(abs(sunrise_time-zenith)))).';
+for i = 1:1:abs(round(zenith-sunrise_time))
+    morning(i) = (round(sunrise_time-zenith)+(i-1));
+end
+afternoon = (zeros(1,floor(abs(sunset_time-zenith)))).';
+for i = 1:1:abs(floor(zenith-sunrise_time))
+    afternoon(i) = (0+i);
+end
+hour_dis_day = vertcat(morning,0,afternoon);
+
+% Calculate c of Gauss bell (equivalent to SD of a normal distribution)
+% (see "Daily light distribution fit.xlsx)
+if hemisphere == "north"
+    if month <= 7
+        c = 0.2424*month + 2.099;
+    else 
+        c = -0.2388*month + 5.1362;
+    end
+else
+    if month <= 7
+        c = -0.2388*month + 3.7032;
+    else
+        c = 0.2424*month + 0.6444;
+    end
+end
+
+% Iteration to calculate maximum daily irradiance
+% Parameters Gauss bell equation
+b = 0;
+a0 = 900;
+lb = 0;
+ub = 10000;
+options=optimoptions(@lsqnonlin,'FunctionTolerance',1e-6, ...
+    'StepTolerance', 1e-4, ...
+    'OptimalityTolerance',1e-6, ...
+    'Display','iter', ...
+    'MaxFunctionEvaluations',1000, ...
+    'FiniteDifferenceType','central');
+x=zeros(numel(data),1);
+for i=1:1:numel(data)
+    data_sol=data(0+i);
+    [x(0+i)] = lsqnonlin(@max_I_calc, ...
+    a0,lb,ub,options,b,c,hour_dis_day,data_sol);
+end
+
+% Calculate solar irradiance distributions for the selected period
+% Considering only daytime
+I = zeros(numel(x),numel(hour_dis_day));
+for z=1:1:numel(x)
+    for j=1:numel(hour_dis_day)
+        I(0+z,0+j) = x(0+z).*exp(-((hour_dis_day(0+j)-b).^2)./(2.*c.^2));
+    end
+end
+% Adding night hours: starts at 00:00 h of the first day
+night_before_sunrise = (zeros(numel(x),floor(sunrise_time)));
+night_after_sunset = (zeros(numel(x),round(24-sunset_time-1)));
+I_tot = horzcat(night_before_sunrise,I,night_after_sunset);
+I_tot_hourly=I_tot.';
+I_tot_hourly = I_tot_hourly(:);
+Time_tot = (0:1:(numel(data)*24-1)).';
+plot(Time_tot,I_tot_hourly)
