@@ -1,0 +1,596 @@
+%% ePAnM implementation
+%-------------------------------------------------------------------------
+% 16-06-2021 Author: Gabriel Capson-Tojo; gabriel.capson.tojo@usc.es 
+%-------------------------------------------------------------------------
+
+
+%% Function (biochemical model)
+
+function [dydt,tout,pHout] = ePAnM(t,y,tu,u,V)
+% Organise the input so that it can handle the time steppin
+% via interpolation of flowrates according to time steps
+    u = interp1(tu,u,t);
+
+    persistent t_list pH_list
+    if t==0
+        clear tlist pHlist
+    end
+    t_list = [t_list;t];
+
+%%  State variables
+
+    % Soluble Components
+    SVFA = y(1);           % mgCOD/L
+    SAC = y(2);            % mgCOD/L
+    SIC = y(3);            % molHCO3-C/L
+    SH2 = y(4);            % mgCOD/L
+    SO = y(5);             % mgCOD/L
+    SIN = y(6);            % mgNH3-N/L
+    SIP = y(7);            % mgPO4-P/L
+    SORG = y(8);           % mgCOD/L
+    SI = y(9);             % mgCOD/L
+    SSO4 = y(10);          % mgS/L
+    SH2S = y(11);          % mgS/L
+    % Particulate Components
+    XPB = y(12);           % mgCOD/L
+    XAer = y(13);          % mgCOD/L
+    XH = y(14);            % mgCOD/L
+    XAC = y(15);           % mgCOD/L
+    XPred = y(16);         % mgCOD/L
+    XHSRB = y(17);         % mgCOD/L
+    XASRB = y(18);         % mgCOD/L  
+    XAlg = y(19);          % mgCOD/L      
+    XC = y(20);            % mgCOD/L
+    XI = y(21);            % mgCOD/L
+    % For pH calculations
+    SVfa_ = y(22);         % mgCOD/L
+    SAc_ = y(23);          % mgCOD/L
+    SHCO3_ = y(24);        % molC/L
+    SNH3 = y(25);          % mgN/L
+    SH2PO4_ = y(26);       % mgP/L
+    SHS_ = y(27);          % mgS/L
+    % Gas
+    CO2_gas = y(28);
+
+%%  Parameters
+    
+% Stoichiometry
+    % Hydrolysis
+    f_SORG_XC = 0.57;                        % mgCOD/mgCOD
+    f_SI_XC = 0.1;                           % mgCOD/mgCOD
+    f_XI_XC = 0.33;                          % mgCOD/mgCOD 
+    % Photoheterotrophic uptake PPB
+    f_IC_ac_ph = 5.2e-6;                     % molHCO3-C/mgCOD
+    f_IC_VFA_ph = -2.6e-6;                   % molHCO3-C/mgCOD
+    Y_PB_ph = 1.0;                           % molC/molC
+    % Chemoheterotrophic uptake PPB
+    f_ac_vfa = 0.67;                         % mgCOD/mgCOD
+    f_H2_vfa = 1.0 - f_ac_vfa;               % mgCOD/mgCOD
+    f_ac_org = 0.5033;                       % mgCOD/mgCOD
+    f_vfa_org = 0.3133;                      % mgCOD/mgCOD
+    f_H2_org = 0.1833;                       % mgCOD/mgCOD
+    Y_PB_fer = 0.2;                          % mgCOD/mgCOD (ADM1)
+    % Aerobic uptake PPB    
+    Y_PB_aer = 0.67;                         % mgCOD/mgCOD (ASM1)
+    % Aerobic uptake aerobes    
+    Y_Aer = Y_PB_aer;                        % mgCOD/mgCOD
+    % Chemoheterotrophic uptake heterotrophs    
+    Y_H = Y_PB_fer;                          % mgCOD/mgCOD
+    Y_Ac = Y_PB_fer;                         % mgCOD/mgCOD
+    % Autotrophic uptake H2
+    f_IC_au = 1.0;                           % molHCO3-C/molHCO3-C
+    f_H2_au = 40320.0;                       % mgCOD/molHCO3-C
+    Y_PB_au = f_H2_au;                       % mgCOD/molHCO3-C
+    % Autotrophic uptake H2 (to SO4 only)
+    Y_PB_au_S = 2;                           % mgCOD/mgS
+    % Predators
+    Y_Pred = 0.5;                            % mgCOD/mgCOD
+    % Autothrophic sulfate-reducing organisms
+    Y_ASRB = 0.147;                          % mgCOD/mgCOD (Duran 2020)
+    Y_HSRB = 0.362;                          % mgCOD/mgCOD (Duran 2020)
+    % Autothrophic algae uptake
+    Y_Alg_A = 34800;                       % mgCOD/molHCO3-C (Wagner 2016)
+    % Heterotrophic algae uptake
+    Y_Alg_H = 0.42;                        % mgCOD/mgCOD (Wagner 2016)  
+    
+    
+% Kinetic parameters
+    % Specific uptake rates (Monod) and 1st order rates
+    k_HYD = 10;                      % d-1 (ADM1)
+    kM_ac = 2.735;                   % d-1 (Calibrated)
+    kM_vfa = 1.680;                  % d-1 (Calibrated)
+    kM_fer = 7.386e-2;               % d-1 (Puyol 2017)
+    kM_fer_org = kM_fer;             % d-1
+    kM_O_PB = 4.66;                  % d-1 (Capson-Tojo 2021)
+    kM_O_aer = 6/Y_Aer;              % d-1 (ASM1 at 20 C; growth rate)
+    kM_H = 29;                       % d-1 (from ADM1 k_su 30, k_aa 50, k_fa 6)
+    kM_Ac = 17;                      % d-1 (from ADM1 average km_pro and km_c4)
+    kM_IC = 2.5e-5;                  % mol HCO3-C/mgCOD/d-1 (Puyol 2017) 
+    kM_S = 1.71;                     % mgS/mgCOD/d (Egger 2020; 0.1 limiting g S/g VS/h)
+    kM_ASRB = 1.43/Y_ASRB;           % d-1 (Duran 2020)
+    kM_HSRB = 0.62/Y_HSRB;           % d-1 (Duran 2020)
+    kM_Pred = 2.208/Y_Pred;          % d-1 (Ni 2011)
+    kM_Algae_A = 3.6/Y_Alg_A;        % mol HCO3-C/mgCOD/d-1 (Wagner 2016)
+    kM_Algae_H = 0.7/Y_Alg_H;        % d-1 (Wagner 2016)
+    kDEC_PB = 0.09;                  % d-1 (Puyol);
+    kDEC_Aer = 0.62;                 % d-1 (ASM1)
+    kDEC_Ac = 0.02;                  % d-1 (ADM1)
+    kDEC_H = 0.02;                   % d-1 (ADM1)
+    kDEC_Pred = 0.024*24;            % d-1 (Ni 2011)
+    kDEC_ASRB = 0.02;                % d-1 (Duran 2020)
+    kDEC_HSRB = 0.07;                % d-1 (Duran 2020)
+    kDEC_Alg = 0.21;                 % d-1 (Wagner 2016)
+    
+    % Half saturation constants 
+    K_ac = 17.80;                    % mg COD/L (Calibrated)
+    K_vfa = 0.5;                     % mg COD/L (Puyol 2017)
+    K_vfa_fer = K_vfa;               % mg COD/L (Puyol 2017)
+    K_org_fer = K_vfa_fer;           % mg COD/L
+    K_ac_O = 20;                     % mg O2/L
+    K_VFA_O = K_ac_O;                % mg O2/L (ASM1)
+    K_ORG_O = K_VFA_O;               % mg O2/L (ASM1)
+    K_O_PB = 0.2;                    % mg O2/L (ASM1)
+    K_ac_aer = 20;                   % mg COD/L (ASM1)
+    K_VFA_aer = K_ac_aer;            % mg COD/L
+    K_ORG_aer = K_VFA_aer;           % mg COD/L
+    K_O_aer = 0.2;                   % mg O2/L (ASM1)  
+    K_ORG_H = 0.4;                   % mg COD/L (from ADM1 K_S_su 0.5, K_S_aa 0.3, K_S_fa 0.4)
+    K_VFA_H = 300;                   % mg COD/L (ADM1)
+    K_IC = 4.2e-4;                   % mol HCO3-C/L (Puyol 2017)
+    K_H2 = 0.12;                     % mg COD/L (Puyol 2017)
+    K_S = 1;                         % mg S/L (Egger 2020)
+    K_IC_S = K_IC;                   % mol HCO3-C/L
+    K_SO4_HSRB = 9.3;                % mg S/L
+    K_ac_HSRB = 5.12;                % mg COD/L
+    K_VFA_HSRB = 29.4;               % mg COD/L
+    K_SO4_ASRB = 0.25;               % mg S/L
+    K_H2_ASRB = 0.1;                 % mg COD/L
+    K_O_Pred = 0.2;                  % mg O2/L (Moussa 2005) 
+    K_Aer_Pred = 61.5;               % mg COD/L
+    K_IC_Alg = 2.5e-04;              % mol HCO3-C/L (Wagner 2016)                  
+    K_O_Alg = 2;                     % mg COD/L (Wagner 2016)  
+    K_ac_Alg = 6.3;                  % mg COD/L (Wagner 2016)  
+    
+% Inhibition constants
+    K_I_TAN = 873;                   % mg NH4-N/L; (Puyol 2020)
+    K_IN = 0.02;                     % mg NH3-N/L (Puyol 2017)
+    K_IP = 0.081;                    % mg PO4-P/L (Puyol 2017)
+    K_I_O = 0.01;                    % mg O2/L
+    K_I_L = 163.86;                  % W/m2 (Wagner 2016)
+    
+    % Irradiance Parameters
+    Light_IN = u(31);                % W/m2
+    UV_VIS_frac = u(32);             % W/m2
+    NIR_frac = u(33);                % W/m2
+    ka = 4.09*XPB^(-0.606);
+    Ltot = 0.04;                     % m (half of width in a flat plate; depth in a pond)
+    IZ = @(L) Light_IN*exp(-ka*L*XPB);% W/m2  
+    Iave = 1/Ltot*integral(IZ,0,Ltot);% W/m2
+    K_NIR_PB = 4.5829;               % (Capson-Tojo 2021)
+    K_L_VIS_Alg = 375;               % W/m2 (Wagner 2016)
+    
+    % Temperature Parameters
+    % Arrhenius(no inhibition considered at high T)
+    T = u(29);
+    factor_hyd = 1.066; % Duran 2020
+    factor_H = 1.033; % Duran 2020
+    factor_H_dec = 1.066; % Duran 2020
+    factor_Ac = 1.043; % Duran 2020
+    factor_Ac_dec = 1.032; % Duran 2020
+    factor_HSRB = 1.077; % Duran 2020
+    factor_HSRB_dec = 1.067; % Duran 2020
+    factor_ASRB = 1.100; % Duran 2020
+    factor_ASRB_dec = 1.066; % Duran 2020
+    k_aer_10 = 3/0.67;
+    k_aer_20 = 6/0.67;
+    factor_aer = (log(k_aer_20/k_aer_10))/(20-10);
+    k_aer_dec_20 = 0.62;
+    k_aer_dec_10 = 0.20;
+    factor_aer_dec = (log(k_aer_dec_20/k_aer_dec_10))/(20-10);
+    % CTMI
+    T_min_pb = 8.41;                 % Experimental
+    T_max_pb = 52.0;                 % Experimental
+    T_opt_pb = 30.2;                 % Experimental
+    T_min_alg = 2;                   % (Ruiz-Martinez 2016) (<0-8.4 Bernard and Remond 2012)
+    T_max_alg = 32;                  % (Bernard and Remond 2012)
+    T_opt_alg = 20.5;                % (Bernard and Remond 2012)
+    
+% Oxygen transfer
+  kLa = 0;
+  O_sat = 7;  
+  
+%% C, N, P contents and stoichiometric coefficients
+
+% C contents
+C_SORG = 0.00002767;     % mol C/mg COD
+C_VFA = 0.00002513;      
+C_Ac = 0.00003125;       
+C_XB = 0.00002480;          
+
+% N contents
+N_X_PB = 0.0932; % Calibrated mg/mg
+N_Xc = N_X_PB;
+N_SORG = 0.016;
+N_SI = 0.060026;
+N_XI = 0.060026;
+N_X_Aer = N_X_PB;
+N_X_Ac = N_X_PB;
+N_X_H = N_X_PB;
+N_X_au = N_X_PB;
+N_X_Pred = N_X_PB;
+N_X_HSRB = N_X_PB;
+N_X_ASRB = N_X_PB;
+N_X_Alg = N_X_PB;
+
+% P contents
+P_X_PB = 0.0147; % Calibrated mg/mg
+P_Xc = P_X_PB;
+P_SORG = 0.0028;
+P_SI = 0.00649;
+P_XI = 0.00649;
+P_X_Aer = P_X_PB;
+P_X_Ac = P_X_PB;
+P_X_H = P_X_PB;
+P_X_au = P_X_PB;
+P_X_Pred = P_X_PB;
+P_X_HSRB = P_X_PB;
+P_X_ASRB = P_X_PB;
+P_X_Alg = P_X_PB;
+
+% Stoichiometric coefficients C, N, P balances
+v3_4 = C_VFA - (1-Y_PB_fer)*f_ac_vfa*C_Ac - Y_PB_fer*C_XB;
+v3_5 = C_SORG - (1-Y_PB_fer)*f_vfa_org*C_VFA - (1-Y_PB_fer)*f_ac_org*C_Ac...
+    - Y_PB_fer*C_XB;
+v3_6 = C_Ac - Y_PB_aer*C_XB;
+v3_7 = C_VFA - Y_PB_aer*C_XB;
+v3_8 = C_SORG - Y_PB_aer*C_XB;
+v3_9 = C_Ac - Y_Aer*C_XB;
+v3_10 = C_VFA - Y_Aer*C_XB;
+v3_11 = C_SORG - Y_Aer*C_XB;
+v3_12 = C_SORG - (1-Y_H)*f_vfa_org*C_VFA - (1-Y_H)*f_ac_org*C_Ac...
+    - Y_H*C_XB;
+v3_13 = C_VFA - (1-Y_Ac)*f_ac_vfa*C_Ac - Y_Ac*C_XB;
+v3_15 = C_XB - Y_Pred*C_XB;
+v3_16 = C_XB - Y_Pred*C_XB;
+v3_17 = C_Ac - Y_HSRB*C_XB;
+v3_18 = C_VFA - Y_HSRB*C_XB;
+v3_19 = - Y_ASRB*C_XB;
+v3_20 = - Y_PB_au_S*C_XB;
+v3_22 = C_Ac - Y_Alg_H*C_XB;
+
+v6_1 = N_Xc - f_SI_XC*N_SI - f_XI_XC*N_XI - f_SORG_XC*N_SORG;
+v6_2 = -Y_PB_ph*N_X_PB;
+v6_3 = -Y_PB_ph*N_X_PB;
+v6_4 = -Y_PB_fer*N_X_PB;
+v6_5 = N_SORG - Y_PB_fer*N_X_PB;
+v6_6 = -Y_PB_aer*N_X_PB;
+v6_7 = -Y_PB_aer*N_X_PB;
+v6_8 = N_SORG - Y_PB_aer*N_X_PB;
+v6_9 = -Y_Aer*N_X_Aer;
+v6_10 = -Y_Aer*N_X_Aer;
+v6_11 = N_SORG - Y_Aer*N_X_Aer;
+v6_12 = N_SORG - Y_H*N_X_H;
+v6_13 = -Y_Ac*N_X_Ac;
+v6_14 = -Y_PB_au*N_X_au;
+v6_15 = N_X_Aer - Y_Pred*N_X_Pred;
+v6_16 = - Y_HSRB*N_X_HSRB;
+v6_17 = N_X_PB - Y_Pred*N_X_Pred;
+v6_18 = - Y_HSRB*N_X_HSRB;
+v6_19 = - Y_ASRB*N_X_ASRB;
+v6_20 = - Y_PB_au_S*N_X_PB;
+v6_21 = -Y_Alg_A*N_X_Alg;
+v6_22 = - Y_Alg_H*N_X_Alg;
+
+v7_1 = P_Xc - f_SI_XC*P_SI - f_XI_XC*P_XI - f_SORG_XC*P_SORG;
+v7_2 = -Y_PB_ph*P_X_PB;
+v7_3 = -Y_PB_ph*P_X_PB;
+v7_4 = -Y_PB_fer*P_X_PB;
+v7_5 = P_SORG - Y_PB_fer*P_X_PB;
+v7_6 = -Y_PB_aer*P_X_PB;
+v7_7 = -Y_PB_aer*P_X_PB;
+v7_8 = P_SORG - Y_PB_aer*P_X_PB;
+v7_9 = -Y_Aer*P_X_Aer;
+v7_10 = -Y_Aer*P_X_Aer;
+v7_11 = P_SORG - Y_Aer*P_X_Aer;
+v7_12 = P_SORG - Y_H*P_X_H;
+v7_13 = -Y_Ac*P_X_Ac;
+v7_14 = -Y_PB_au*P_X_au;
+v7_15 = P_X_Aer - Y_Pred*P_X_Pred;
+v7_16 = P_X_PB - Y_Pred*P_X_Pred;
+v7_17 = - Y_HSRB*P_X_HSRB;
+v7_18 = - Y_HSRB*P_X_HSRB;
+v7_19 = - Y_ASRB*P_X_ASRB;
+v7_20 = - Y_PB_au_S*P_X_PB;
+v7_21 = -Y_Alg_A*P_X_Alg;
+v7_22 = - Y_Alg_H*P_X_Alg;
+        
+%% pH calculation
+
+    SCAT = 0.002; % Metallic cations
+    SAN = 0.001;  % Metallic anions
+    % Acid-base rates
+    k_A_Bvfa = 1e8; % ADM1;
+    k_A_Bac = 1e8; 
+    k_A_Bco2 = 1e8; 
+    k_A_BIP = 1e8; 
+    k_A_BIN = 1e8; 
+    k_A_BIS = 1e8;
+    % Temperature correction
+    R = 0.08314;
+    T_base = 298.15;
+    factor = (1.0/T_base - 1.0/(T+273.15))/(100.0*R);
+    % Acid-base equilibrium constants
+    pK_w_base    = 14.0;
+    pK_a_ac_base = 4.76;
+    pK_a_vfa_base = 4.85;
+    pK_a_co2_base= 6.35;
+    pK_a_IN_base = 9.25;
+    pK_a_IP_base = 7.21;
+    pK_a_IS_base = 7.04;
+    K_a_AC  = 10^(-pK_a_ac_base);
+    K_a_VFA  = 10^(-pK_a_vfa_base);
+    K_a_CO2 = 10^(-pK_a_co2_base)*exp(7674*factor);
+    K_a_NH4 = 10^(-pK_a_IN_base)*exp(51965*factor);
+    K_a_H2PO4 = 10^(-pK_a_IP_base)*exp(30840*factor);
+    K_a_HS = 10^(-pK_a_IS_base)*exp(1470000*factor); 
+    K_w = 10^(-pK_w_base)*exp(55900*factor);
+    % Ionic strength correction in K_a_IN
+    % Correct dielectric constant according to T (74.828 and 68.345 at 35
+    % and 55 ºC)
+    E_values = [74.828, 68.345];
+    T_E_values= [35, 55];
+    E = interp1(T_E_values,E_values,T,'linear','extrap');
+    A = 1.82*10^6*((E*(T+273.15))^(-3/2));
+    I = 1/2*2*(SCAT + (SIN-SNH3)/18); % in M, considering only metallic cations and NH4+
+    f_davies = 10^(-A*((sqrt(I)/(1+sqrt(I)))-0.1276*I));   
+    K_a_NH4_corr = K_a_NH4*f_davies;
+    % pH calculation
+    phi = SCAT + (SIN-SNH3)/14000 - SHCO3_ - SAc_/64254 - SVfa_/(136110)...
+       - SH2PO4_/30973 - SHS_/32000 - SAN;
+    S_H_ion = -phi*0.5+0.5*sqrt(phi*phi+4.0*K_w);
+    pHout = -log10(S_H_ion);
+
+    pH_list = [pH_list;pHout]; 
+    
+%% CO2 losses
+    P_atm = 1.013;
+    K_H_co2_base = 0.035;
+    kLa_CO2 = 100;
+    k_p = 5e4;
+    P_gas_co2 = CO2_gas*R*T;
+    K_H_co2 = K_H_co2_base*exp(-19410.0*factor);
+    P_gas = P_gas_co2;
+    q_gas = k_p*(P_gas - P_atm)*P_gas/P_atm;  
+    
+    %% Temperature corrections in rates
+    % Arrhenius (ASM1 for aerobes and predators and Duran 2020 for others)
+    I_T_hyd = exp(factor_hyd*(1/(35+273.15)-1/(T+273.15)));
+    I_T_H = exp(factor_H*(1/(35+273.15)-1/(T+273.15))); 
+    I_T_H_dec = exp(factor_H_dec*(1/(35+273.15)-1/(T+273.15))); 
+    I_T_Ac = exp(factor_Ac*(1/(35+273.15)-1/(T+273.15)));
+    I_T_Ac_dec = exp(factor_Ac_dec*(1/(35+273.15)-1/(T+273.15)));
+    I_T_HSRB = exp(factor_HSRB*(1/(20+273.15)-1/(T+273.15)));
+    I_T_HSRB_dec = exp(factor_HSRB_dec*(1/(20+273.15)-1/(T+273.15)));
+    I_T_ASRB = exp(factor_ASRB*(1/(20+273.15)-1/(T+273.15)));
+    I_T_ASRB_dec = exp(factor_ASRB_dec*(1/(20+273.15)-1/(T+273.15)));
+    I_T_aer = exp(factor_aer*(T-20));
+    I_T_aer_dec = exp(factor_aer_dec*(T-20));    
+    % CTMI
+    % Algae (Ruiz-Martinez 2016)
+    I_T_alg = ((T-T_max_alg)*((T-T_min_alg)^2))/((T_opt_alg-T_min_alg)*...
+        ((T_opt_alg-T_min_alg)*(T-T_opt_alg)-(T_opt_alg-T_max_alg)*...
+        (T_opt_alg+T_min_alg-2*T)));  
+    %PPB
+    I_T_PB = ((T-T_max_pb)*((T-T_min_pb)^2))/((T_opt_pb-T_min_pb)*...
+       ((T_opt_pb-T_min_pb)*(T-T_opt_pb)-(T_opt_pb-T_max_pb)*...
+       (T_opt_pb+T_min_pb-2*T)));  
+    
+    %% Inhibition equations
+
+    % FAN inhibition
+    I_TAN = K_I_TAN/(K_I_TAN + SIN); % considering both FAN and NH4+ as potential inhibitors
+    % Inorg N limitation
+    I_IN = SIN/(K_IN + SIN);
+    % Inorg P limitation
+    I_IP = SIP/(K_IP + SIP);
+    % Light limitation & inhibition
+    I_L_NIR = (NIR_frac*Iave)/(K_NIR_PB + (NIR_frac*Iave));
+    I_L_Alg = (UV_VIS_frac*Iave/K_L_VIS_Alg)*exp(1-(UV_VIS_frac*Iave/K_L_VIS_Alg));
+    I_L_I = K_I_L/(K_I_L + Iave);
+    % Oxygen inhibition
+    I_O = K_I_O/(K_I_O + SO);
+    % pH inhibition (considering only low pH inhibition as in ADM1)
+    % values for PPB from Capson-Tojo 2020 (H2 section)
+    pH_UL_PB = 5.5;
+    pH_LL_PB = 4.5;
+    pH_UL_HSRB = 5;
+    pH_LL_HSRB = 3.2;
+    pH_UL_ASRB = pH_UL_HSRB;
+    pH_LL_ASRB = pH_LL_HSRB; 
+
+if (pHout < pH_UL_PB)
+   I_pH_PB = exp(-3.0*(pHout-pH_UL_PB)*(pHout-pH_LL_PB)/((pH_UL_PB-pH_LL_PB)*(pH_UL_PB-pH_LL_PB)));
+else
+   I_pH_PB = 1.0;
+end
+  
+if (pHout < pH_UL_HSRB)
+   I_pH_HSRB = exp(-3.0*(pHout-pH_UL_HSRB)*(pHout-pH_UL_HSRB)/((pH_UL_HSRB-pH_LL_HSRB)*(pH_UL_HSRB-pH_LL_HSRB)));
+else
+   I_pH_HSRB = 1.0;
+end
+
+if (pHout < pH_UL_ASRB)
+   I_pH_ASRB = exp(-3.0*(pHout-pH_UL_ASRB)*(pHout-pH_UL_ASRB)/((pH_UL_ASRB-pH_LL_ASRB)*(pH_UL_ASRB-pH_LL_ASRB)));
+else
+   I_pH_ASRB = 1.0;
+end
+    
+%%  % --------------------- RATE EQUATIONS ----------------------------
+   
+    % HYDROLYSIS
+    r1 = k_HYD*XC*I_T_hyd;
+    % ACETATE UPTAKE BY PPB (PHOTOHETEROTROPHY)
+    r2 = kM_ac*(SAC/(K_ac + SAC))*XPB...
+        *I_TAN*I_IN*I_IP*I_L_NIR*I_O*I_pH_PB*I_T_PB;
+    % VFA UPTAKE BY PPB (PHOTOHETEROTROPHY)
+    r3 = kM_vfa*(SVFA/(K_vfa + SVFA))*XPB...
+        *I_TAN*I_IN*I_IP*I_L_NIR*I_O*I_pH_PB*I_T_PB;
+    % VFA FERMENTATION BY PPB
+    r4 = kM_fer*(SVFA/(K_vfa_fer + SVFA))*XPB...
+        *I_TAN*I_IN*I_IP*I_O*I_pH_PB*I_T_PB;
+    % ORGANICS FERMENTATION BY PPB
+    r5 = kM_fer_org*(SORG/(K_org_fer + SORG))*...
+        XPB*I_TAN*I_IN*I_IP*I_O*I_pH_PB*I_T_PB;
+    % RESPIRATION BY PPB
+    r6 = kM_O_PB*(SAC/(K_ac_O + SAC))*(SO/(K_O_PB + SO))*XPB...
+       *I_TAN*I_IN*I_IP*I_pH_PB*I_T_PB;
+    r7 = kM_O_PB*(SVFA/(K_VFA_O + SVFA))*(SO/(K_O_PB + SO))*XPB...
+        *I_TAN*I_IN*I_IP*I_pH_PB*I_T_PB;
+    r8 = kM_O_PB*(SORG/(K_ORG_O + SORG))*(SO/(K_O_PB + SO))*XPB...
+        *I_TAN*I_IN*I_IP*I_pH_PB*I_T_PB;
+    % RESPIRATION BY HETEROTROPHS
+    r9 = kM_O_aer*(SAC/(K_ac_aer + SAC))*(SO/(K_O_aer + SO))...
+        *XAer*I_IN*I_IP*I_T_aer;
+    r10 = kM_O_aer*(SVFA/(K_VFA_aer + SVFA))*(SO/(K_O_aer + SO))...
+        *XAer*I_IN*I_IP*I_T_aer;
+    r11 = kM_O_aer*(SORG/(K_ORG_aer + SORG))*(SO/(K_O_aer + SO))...
+        *XAer*I_IN*I_IP*I_T_aer;
+    % ORGANICS UPTAKE BY ACIDOGENS    
+    r12 = kM_H*(SORG/(K_ORG_H + SORG))*XH*I_IN*I_IP*I_O*I_T_H;
+    % VFA UPTAKE BY ACETOGENS    
+    r13 = kM_Ac*(SVFA/(K_VFA_H + SVFA))*XAC*I_IN*I_IP*I_O*I_T_Ac;
+    % AUTOTROPHIC UPTAKE OF H2 BY PPB
+    r14 = kM_IC*(SIC/(K_IC + SIC))*(SH2/(K_H2 + SH2))*XPB...
+        *I_TAN*I_IN*I_IP*I_L_NIR*I_O*I_pH_PB*I_T_PB;
+    % PREDATION
+    r15 = kM_Pred*(XAer/(K_Aer_Pred + XAer))*(SO/(K_O_Pred + SO))*XPred...
+        *I_IN*I_IP*I_T_aer;  
+    r16 = kM_Pred*(XPB/(K_Aer_Pred + XPB))*(SO/(K_O_Pred + SO))*XPred...
+        *I_IN*I_IP*I_T_aer;
+    % HAC UPTAKE HSRB
+    r17 = kM_HSRB*(SSO4/(K_SO4_HSRB + SSO4))*(SAC/(K_ac_HSRB + SAC))...
+        *XHSRB*I_IN*I_IP*I_O*I_pH_HSRB*I_T_HSRB;     
+    % VFA UPTAKE HSRB
+    r18 = kM_HSRB*(SSO4/(K_SO4_HSRB + SSO4))*(SVFA/(K_VFA_HSRB + SVFA))...
+        *XHSRB*I_IN*I_IP*I_O*I_pH_HSRB*I_T_HSRB;     
+    % AUTOTROPHIC UPTAKE ASRB
+    r19 = kM_ASRB*(SSO4/(K_SO4_ASRB + SSO4))*(SH2/(K_H2_ASRB + SH2))...
+        *(SIC/(K_IC_S + SIC))*XASRB*I_IN*I_IP*I_O*I_pH_ASRB*I_T_ASRB;      
+    % AUTOTROPHIC UPTAKE H2S PPB
+    r20 = kM_S*(SIC/(K_IC_S + SIC))*(SH2S/(K_S + SH2S))*XPB...
+        *I_TAN*I_IN*I_IP*I_L_NIR*I_O*I_pH_PB*I_T_PB;    
+    % AUTOTROPHIC UPTAKE BY ALGAE
+    r21 = kM_Algae_A*(SIC/(K_IC_Alg + SIC))*XAlg...
+        *I_IN*I_IP*I_L_Alg*I_T_alg;   
+    % HETEROTROPHIC UPTAKE BY ALGAE
+    r22 = kM_Algae_H*(SAC/(K_ac_Alg + SAC))*(SO/(K_O_Alg + SO))*XAlg...
+        *I_IN*I_IP*I_L_I*I_T_alg; 
+    
+    % BIOMASS DECAY
+    r23 = kDEC_PB*XPB;
+    r24 = kDEC_Aer*I_T_aer_dec*XAer;
+    r25 = kDEC_H*I_T_H_dec*XH;
+    r26 = kDEC_Ac*I_T_Ac_dec*XAC;
+    r27 = kDEC_Pred*I_T_aer_dec*XPred; 
+    r28 = kDEC_HSRB*I_T_HSRB_dec*XHSRB;
+    r29 = kDEC_ASRB*I_T_ASRB_dec*XASRB;
+    r30 = kDEC_Alg*XAlg;
+    % OXYGEN SUPPLY 
+    rO2 = kLa*(O_sat-SO);   
+    % CO2 losses
+    rGCO2 = kLa_CO2*((SIC-SHCO3_)-K_H_co2*P_gas_co2);
+    %pH calculation
+    procA1 = k_A_Bvfa*(SVfa_*(K_a_VFA+S_H_ion)-K_a_VFA*SVFA);
+    procA2 = k_A_Bac*(SAc_*(K_a_AC+S_H_ion)-K_a_AC*SAC);
+    procA3 = k_A_Bco2*(SHCO3_*(K_a_CO2+S_H_ion)-K_a_CO2*SIC);
+    procA4 = k_A_BIN*(SNH3*(K_a_NH4_corr+S_H_ion)-K_a_NH4_corr*SIN);
+    procA5 = k_A_BIP*(SH2PO4_*(K_a_H2PO4+S_H_ion)-K_a_H2PO4*SIP);
+    procA6 = k_A_BIS*(SHS_*(K_a_HS+S_H_ion)-K_a_HS*SH2S);
+    
+    %% STATE VARIABLES
+    
+    dydt(1) = u(30)/V * (u(1)-SVFA) - r3 - r4...                              % SVFA
+        + r5*(1-Y_PB_fer)*f_vfa_org - r7 - r10...
+        + r12*(1-Y_H)*f_vfa_org - r13 - r18;
+    
+    dydt(2) = u(30)/V * (u(2)-SAC) - r2 + r4*(1-Y_PB_fer)*f_ac_vfa...         % SAC
+        + r5*(1-Y_PB_fer)*f_ac_org - r6 - r9 + r12*(1-Y_H)*f_ac_org...
+        + r13*(1-Y_Ac)*f_ac_vfa - r17 - r22; 
+    
+    dydt(3) = u(30)/V * (u(3)-SIC) + r2*f_IC_ac_ph + r3*f_IC_VFA_ph ...       % SIC
+        + r14*(-f_IC_au) - r21 + r4*v3_4 + r5*v3_5 + r6*v3_6 + r7*v3_7...
+        + r8*v3_8 + r9*v3_9 + r10*v3_10 + r11*v3_11 + r12*v3_12...
+        + r13*v3_13 + r15*v3_15 + r17*v3_17 + r18*v3_18 + r19*v3_19...
+        + r20*v3_20 + r22*v3_22 - rGCO2 + r16*v3_16;
+    
+    dydt(4) = u(30)/V * (u(4)-SH2) + r4*(1-Y_PB_fer)*f_H2_vfa...               % SH2
+        + r5*(1-Y_PB_fer)*f_H2_org + r12*(1-Y_H)*f_H2_org...
+        + r13*(1-Y_Ac)*f_H2_vfa + r14*(-f_H2_au) - r19;                                        
+
+    dydt(5) = rO2 + r6*(-(1-Y_PB_aer)) + r7*(-(1-Y_PB_aer))...                 % SO
+        + r8*(-(1-Y_PB_aer)) + r9*(-(1-Y_Aer)) + r10*(-(1-Y_Aer))...
+        + r11*(-(1-Y_Aer)) + r15*(-(1-Y_Pred)) + r16*(-(1-Y_Pred)) ...
+        + Y_Alg_A*r21 + r22*(-(1-Y_Alg_H));
+    
+    dydt(6) = u(30)/V * (u(6)-SIN) + r1*v6_1 + r2*v6_2 + r3*v6_3...            % SIN
+        + r4*v6_4 + r5*v6_5 + r6*v6_6 + r7*v6_7 + r8*v6_8 + r9*v6_9...
+        + r10*v6_10 + r11*v6_11 + r12*v6_12 + r13*v6_13 + r14*v6_14...
+        + r15*v6_15 + r17*v6_16 + r18*v6_18 + r19*v6_19 + r20*v6_20...
+        + r21*v6_21 + r22*v6_22 + r16*v6_17;
+        
+    dydt(7) = u(30)/V * (u(7)-SIP) + r1*v7_1 + r2*v7_2 + r3*v7_3...            % SIP
+        + r4*v7_4 + r5*v7_5 + r6*v7_6 + r7*v7_7 + r8*v7_8 + r9*v7_9...
+        + r10*v7_10 + r11*v7_11 + r12*v7_12 + r13*v7_13 + r14*v7_14...
+        + r15*v7_15 + r17*v7_17 + r18*v7_18 + r19*v7_19 + r20*v7_20...
+        + r21*v7_21 + r22*v7_22 + r16*v7_16;
+    
+    dydt(8) = u(30)/V * (u(8)-SORG) + r1*f_SORG_XC - r5 - r8 - r11 - r12;      % SORG                            
+
+    dydt(9) = u(30)/V * (u(9)-SI) + r1*f_SI_XC;                                % SI
+    
+    dydt(10) = u(30)/V * (u(10)-SSO4) - r17*(1-Y_HSRB)/2 ...                   % SSO4
+        - r18*(1-Y_HSRB)/2 - r19*(1-Y_ASRB)/2 + r20;
+    
+    dydt(11) = u(30)/V * (u(11)-SH2S) + r17*(1-Y_HSRB)/2 ...                   % SH2S
+        + r18*(1-Y_HSRB)/2 + r19*(1-Y_ASRB)/2 - r20;
+   
+    dydt(12) = u(30)/V * (u(12)-XPB) + r2*Y_PB_ph + r3*Y_PB_ph...              % XPB
+        + r4*Y_PB_fer + r5*Y_PB_fer + r6*Y_PB_aer + r7*Y_PB_aer...
+        + r8*Y_PB_aer + r14*Y_PB_au + r20*Y_PB_au_S - r23 - r16;
+
+    dydt(13) = u(30)/V * (u(13)-XAer) + r9*Y_Aer + r10*Y_Aer...                % XAer
+        + r11*Y_Aer - r15 - r24;
+    
+    dydt(14) = u(30)/V * (u(14)-XH) + r12*Y_H - r25;                           % XH
+    
+    dydt(15) = u(30)/V * (u(15)-XAC) + r13*Y_Ac - r26;                         % XAC
+
+    dydt(16) = u(30)/V * (u(16)-XPred) + r15*Y_Pred + r16*Y_Pred - r27;        % XPred     
+    
+    dydt(17) = u(30)/V * (u(17)-XHSRB) + r17*Y_HSRB + r18*Y_HSRB - r28;        % XHSRB
+    
+    dydt(18) = u(30)/V * (u(18)-XASRB) + Y_ASRB*r19 - r29;                     % XASRB
+    
+    dydt(19) = u(30)/V * (u(19)-XAlg) + Y_Alg_A*r21 + Y_Alg_H*r22 - r30;       % XAlg
+    
+    dydt(20) = u(30)/V * (u(20)-XC) - r1 + r23 + r24 + r25 + r26 + r27...      % XC
+        + r28 + r29 + r30;   
+    
+    dydt(21) = u(30)/V * (u(21)-XI) + f_XI_XC*r1;                              % XI
+      
+    dydt(22) = -procA1;                     % SVfa_ 
+    dydt(23) = -procA2;                     % SAc- 
+    dydt(24) = -procA3;                     % SHCO3- 
+    dydt(25) = -procA4;                     % SNH3 
+    dydt(26) = -procA5;                     % SH2PO4_
+    dydt(27) = -procA6;                     % SH_
+    dydt(28) = -CO2_gas*q_gas/(V*100)+rGCO2*V/(V*100); % CO2 (assume large headspace)
+
+    dydt = dydt';
+        
+   if nargout > 1
+       pHout = pH_list(1:(end-1),:);
+       tout = t_list(1:(end-1),:);
+   end
+end
