@@ -1,0 +1,79 @@
+%% RUNFILE for the ePAnM model (implementation)
+%-------------------------------------------------------------------------
+% 16-06-2021 Author: Gabriel Capson-Tojo; gabriel.capson.tojo@usc.es 
+% (adapted from Ed Barry for http://dx.doi.org/10.1016/j.watres.2017.03.022)
+%-------------------------------------------------------------------------
+
+clear all; clc;
+
+global V
+
+%% USER INPUT
+data = csvread('dynamic_influent_sim.csv'); 
+data_t0 = csvread('initial_data_sim.csv');
+tu = data(:,1); % Time (t) to which raw input (u) is mapped
+
+%----------------------------------------------
+%% Assign variable names to influent data
+HRT = 24; % (h)
+Illuminated_surface = 20; % (m2)
+V = mean(data(:,31))*HRT/24; % (L)
+% SRT = HRT;
+
+% Order in input file: Time, states
+Svfa = data(:,2);
+Sac = data(:,3);
+Sic = data(:,4);
+Sh2 = data(:,5);
+SO = data(:,6);
+Sin = data(:,7);
+Sip = data(:,8);
+Sorg = data(:,9);
+Si = data(:,10);
+SSO4 = data(:,11);
+SH2S = data(:,12);
+XPB = data(:,13);
+XAer = data(:,14);
+XH = data(:,15);
+XAc = data(:,16);
+XPred = data(:,17);
+XHSRB = data(:,18);
+XASRB = data(:,19);
+XAlg = data(:,20);
+XC = data(:,21);
+Xi = data(:,22);
+SVfa_ = data(:,23);
+SAc_ = data(:,24);
+SHCO3_ = data(:,25);
+SNH3 = data(:,26);
+SH2PO4_ = data(:,27);
+SHS_ = data(:,28);
+CO2_gas = data(:,29);
+T = data(:,30);
+% Flowrates
+QinVec = data(:,31);
+%QslVec = V/(SRT/24);
+QslVec = 0;
+QoutVec = QinVec - QslVec;       % Solids removed from the effluent
+% Light
+Light_IN = data(:,32);
+UV_VIS_frac = data(:,33)*0.42;
+NIR_IN_frac = data(:,34)*0.49;
+
+% Order of vars in model (u); %QinVec = u(30)
+feed = [Svfa, Sac, Sic, Sh2, SO, Sin, Sip, Sorg, Si, SSO4,...
+    SH2S, XPB, XAer, XH, XAc, XPred, XHSRB, XASRB, XAlg, XC,...
+    Xi, SVfa_, SAc_, SHCO3_, SNH3, SH2PO4_, SHS_, CO2_gas, T,...
+    QinVec, Light_IN, UV_VIS_frac, NIR_IN_frac, QoutVec];
+% Duration of experiment/simulation (d)
+tspace = [0 30];
+
+%% Run ode solver
+options = odeset('RelTol',4e-6,'AbsTol',4e-6);
+
+tic
+[t,y] = ode15s(@(t,y)ePAnM(t,y,tu,feed,V),tspace,data_t0(1,1:28),options);
+toc
+
+%% PLOTS
+run('plots_ePAnM_sim')
