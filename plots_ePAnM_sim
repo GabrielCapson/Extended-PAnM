@@ -1,0 +1,271 @@
+%% PLOTFILE for the ePAnM model
+%-------------------------------------------------------------------------
+% 16-06-2021 Author: Gabriel Capson-Tojo; gabriel.capson.tojo@usc.es 
+%-------------------------------------------------------------------------
+
+sCODmod = y(:,1) + y(:,2) + y(:,4) + y(:,8) + y(:,9);
+pCODmod = y(:,12) + y(:,13) + y(:,14) + y(:,15) + y(:,16) + y(:,17)...
+    + y(:,18) + y(:,19) + y(:,20) + y(:,21);
+tCODmod = sCODmod + pCODmod;
+
+input = interp1(data(:,1),data,t);
+biomass_yield = (y(:,12) + y(:,13) + y(:,14) + y(:,15) + y(:,16) + y(:,17)...
+    + y(:,18) + y(:,19))./(input(:,2)+input(:,3)+input(:,9)...
+    +input(:,21)); %g CODbiomass/g bioCODfed
+biomass_prod = (y(:,12) + y(:,13) + y(:,14) + y(:,15) + y(:,16) + y(:,17)...
+    + y(:,18) + y(:,19))./Illuminated_surface./(HRT/24).*V/1000;
+VS_prod = (y(:,12) + y(:,13) + y(:,14) + y(:,15) + y(:,16) + y(:,17)...
+    + y(:,18) + y(:,19) + y(:,20))./Illuminated_surface./(HRT/24).*V/1000;
+TS_prod = (y(:,12) + y(:,13) + y(:,14) + y(:,15) + y(:,16) + y(:,17)...
+    + y(:,18) + y(:,19) + y(:,20) + y(:,21))./Illuminated_surface./(HRT/24).*V/1000;
+VS_TS = VS_prod./TS_prod.*100;
+biomass_vol_prod = (y(:,12) + y(:,13) + y(:,14) + y(:,15) + y(:,16) + y(:,17)...
+    + y(:,18) + y(:,19))./(HRT/24);
+OLR_ave = (input(:,2) + input(:,3) + input(:,5) + input(:,9) + input(:,10)...
+    + input(:,13) + input(:,14) + input(:,15) + input(:,16) + input(:,17)...
+    + input(:,18) + input(:,19) + input(:,20) + input(:,21) + input(:,22))...
+    ./(HRT/24);
+OLR = (data(:,2) + data(:,3) + data(:,5) + data(:,9) + data(:,10)...
+    + data(:,13) + data(:,14) + data(:,15) + data(:,16) + data(:,17)...
+    + data(:,18) + data(:,19) + data(:,20) + data(:,21) + data(:,22))...
+    /V.*(data(:,31));
+OLR_in = (data(1,2) + data(1,3) + data(1,5) + data(1,9) + data(1,10)...
+    + data(1,13) + data(1,14) + data(1,15) + data(1,16) + data(1,17)...
+    + data(1,18) + data(1,19) + data(1,20) + data(1,21) + data(1,22))...
+    /(HRT/24)/1000;
+
+figure(1)
+    subplot(6,1,1)
+    plot(t,sCODmod,'r');
+    grid;
+    ylabel('SCOD (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(6,1,2)
+    plot(t,tCODmod,'r');
+    grid;
+    ylabel('TCOD (g COD/m3)');
+    xlabel('Time (d)');
+
+    subplot(6,1,3)
+    plot(t,y(:,6),'r');
+    grid;
+    ylabel('IN (g COD/m3)');
+    xlabel('Time (d)');
+
+    subplot(6,1,4)
+    plot(t,y(:,7),'r');
+    grid;
+    ylabel('IP (g COD/m3)');
+    xlabel('Time (d)');
+
+    subplot(6,1,5)
+    plot(t,y(:,2),'r');
+    grid;
+    ylabel('SAc (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(6,1,6)
+    plot(t,y(:,1),'r');
+    grid;
+    ylabel('SVFA (g COD/m3)');
+    xlabel('Time (d)');    
+    
+    
+figure(2)
+    subplot(4,1,1)
+    plot(t,y(:,1),'r');
+    grid;
+    title('Soluble organics');
+    ylabel('S_V_F_A (g COD/m3)');
+    xlabel('Time (d)');
+
+    subplot(4,1,2)
+    plot(t,y(:,2),'r');
+    grid;
+    ylabel('S_A_C (g COD/m3)');
+    xlabel('Time (d)');
+
+    subplot(4,1,3)
+    plot(t,y(:,8),'r');
+    grid;
+    ylabel('S_O_R_G (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(4,1,4)
+    plot(t,y(:,9),'r');
+    grid;
+    ylabel('S_I (g COD/m3)');
+    xlabel('Time (d)');
+    
+figure(3)
+    
+    subplot(5,2,1)
+    plot(t,y(:,20),'r');
+    grid;
+    title('Particulates');
+    ylabel('X_C (g COD/m3)');
+    xlabel('Time (d)');
+
+    subplot(5,2,2)
+    plot(t,y(:,21),'r');
+    grid;
+    ylabel('X_I (g COD/m3)');
+    xlabel('Time (d)');
+
+    subplot(5,2,3)
+    plot(t,y(:,12),'r');
+    grid;
+    ylabel('X_P_B (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(5,2,4)
+    plot(t,y(:,13),'r');
+    grid;
+    ylabel('X_A_e_r (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(5,2,5)
+    plot(t,y(:,14),'r');
+    grid;
+    ylabel('X_H (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(5,2,6)
+    plot(t,y(:,15),'r');
+    grid;
+    ylabel('X_A_c (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(5,2,7)
+    plot(t,y(:,17),'r');
+    grid;
+    ylabel('X_H_S_R_B (g COD/m3)');
+    xlabel('Time (d)');   
+
+    subplot(5,2,8)
+    plot(t,y(:,18),'r');
+    grid;
+    ylabel('X_A_S_R_B (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(5,2,9)
+    plot(t,y(:,16),'r');
+    grid;
+    ylabel('X_P_r_e_d (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(5,2,10)
+    plot(t,y(:,19),'r');
+    grid;
+    ylabel('X_A_l_g_a_e (g COD/m3)');
+    xlabel('Time (d)');    
+    
+figure(4)
+    subplot(4,1,1)
+    plot(t,y(:,3),'r');
+    grid;
+    title('Nutrients and SO4');
+    ylabel('IC conc. (Kmol C/m3)');
+    xlabel('Time (d)');
+    
+    subplot(4,1,2)
+    plot(t,y(:,6),'r');
+    grid;
+    ylabel('IN conc. (g N/m3)');
+    xlabel('Time (d)');
+    
+    subplot(4,1,3)
+    plot(t,y(:,7),'r');
+    grid;
+    ylabel('IP conc. (g P/m3)');
+    xlabel('Time (d)');
+    
+    subplot(4,1,4)
+    plot(t,y(:,10),'r');
+    grid;
+    ylabel('SO4 conc. (g S/m3)');
+    xlabel('Time (d)');
+
+figure(5)
+    subplot(3,1,1)
+    plot(t,y(:,5),'r');
+    grid;
+    title('Dissolved gases');
+    title('DO');
+    ylabel('S_O (g O2/m3)');
+    xlabel('Time (d)');
+    ylim([0 8]);
+     
+    subplot(3,1,2)
+    plot(t,y(:,4),'r');
+    grid;
+    ylabel('H_2 (g COD/m3)');
+    xlabel('Time (d)');
+    
+    subplot(3,1,3)
+    plot(t,y(:,11),'r');
+    grid;
+    ylabel('H2S conc. (g S/m3)');
+    xlabel('Time (d)');
+    
+PAMStateMatrix = y;
+[yy,ts,pHs]=PAnM_2(t(1),y(1,:),tu,feed,V);
+
+figure(6)
+    subplot(5,1,1)
+    plot(ts,pHs,'r');
+    grid;
+    title('Environmental factors and flow rate');
+    ylabel('pH');
+    xlabel('Time (d)');
+    ylim([3 10]);  
+    
+    subplot(5,1,2)    
+    plot(data(:,1),data(:,30),'b')
+    ylabel('T (C)');
+    xlabel('Time (d)');
+    
+    subplot(5,1,3)
+    plot(data(:,1),data(:,32),'b')
+    ylabel('Light (W/m2)');
+    xlabel('Time (d)');
+    
+    subplot(5,1,4)
+    plot(data(:,1),data(:,31),'b')
+    ylabel('Q (L/d)');
+    xlabel('Time (d)');
+    
+    subplot(5,1,5)
+    plot(data(:,1),OLR,'b')
+    ylabel('OLR (gCOD/m3/d)');
+    xlabel('Time (d)');
+    
+figure(7)
+    subplot(2,2,1)
+    plot(t,biomass_yield,'r');
+    grid;
+    title('Calculations');
+    ylabel('Biomass yield (g CODbiomass/g bioCODfed)');
+    xlabel('Time (d)');
+    
+    subplot(2,2,2)
+    plot(t,biomass_prod,'r');
+    hold on;
+    plot(t,VS_prod,'b');
+    hold off;
+    grid;
+    ylabel('Biomass productivity (g CODbiomass/m2/d)');
+    xlabel('Time (d)');  
+    
+    subplot(2,2,3)
+    plot(t,biomass_vol_prod,'r');
+    grid;
+    ylabel('Biomass volumetric productivity (g CODbiomass/m3/d)');
+    xlabel('Time (d)');  
+    
+    subplot(2,2,4)
+    plot(t,OLR_ave,'r');
+    grid;
+    ylabel('OLR average (g COD/m3/d)');
+    xlabel('Time (d)');   
