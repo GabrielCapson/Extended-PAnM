@@ -1,7 +1,7 @@
 %% Generator hourly average light input from daily total irradiation (BOM data)
 
 %-------------------------------------------------------------------------
-% 16-06-2021 Author Gabriel Capson-Tojo; gabriel.capson.tojo@usc.es 
+% 16-06-2021 Author Gabriel Capson-Tojo; gabriel.capson-tojo@inrae.fr 
 %-------------------------------------------------------------------------
 
 clear; clc;
