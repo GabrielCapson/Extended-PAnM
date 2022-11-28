@@ -1,6 +1,6 @@
 %% PLOTFILE for the ePAnM model
 %-------------------------------------------------------------------------
-% 16-06-2021 Author: Gabriel Capson-Tojo; gabriel.capson.tojo@usc.es 
+% 16-06-2021 Author: Gabriel Capson-Tojo; gabriel.capson-tojo@inrae.fr 
 %-------------------------------------------------------------------------
 
 sCODmod = y(:,1) + y(:,2) + y(:,4) + y(:,8) + y(:,9);
